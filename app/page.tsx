@@ -9,16 +9,156 @@ import Link from "next/link";
 import { useState } from "react";
 
 export default function LandingPage() {
+  const API_KEY = process.env.NEXT_PUBLIC_LOCATIONQ_API_KEY;
+
   interface Prediction {
     prediction: number;
+  }
+
+  interface Location {
+    lat: string;
+    lon: string;
+  }
+
+  interface Place {
+    place_id: string; // Unique identifier for the place
+    display_name: string; // Full name of the location, including address
+    lat: string; // Latitude of the location
+    lon: string; // Longitude of the location
+    type: string; // Type of location (e.g., city, road, house, etc.)
+    importance: number; // Relevance or importance score
+    boundingbox: [string, string, string, string]; // Coordinates defining the bounding box for the location
+
+    // Additional optional fields for detailed address breakdown
+    address?: {
+      city?: string; // City name
+      town?: string; // Town name, if applicable
+      village?: string; // Village name, if applicable
+      county?: string; // County name
+      state?: string; // State or province
+      country?: string; // Country name
+      country_code?: string; // Country code
+      postcode?: string; // Postal code
+      road?: string; // Road or street name
+      house_number?: string; // House or building number
+      neighbourhood?: string; // Neighborhood name
+      suburb?: string; // Suburb name
+    };
   }
 
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
-  const [distance, setDistance] = useState(500); // This might be calculated based on pickup and dropoff
+  const [pickupLocation, setPickupLocation] = useState<Location | null>(null);
+  const [dropoffLocation, setDropoffLocation] = useState<Location | null>(null);
+  const [distance, setDistance] = useState(0); // This might be calculated based on pickup and dropoff
   const [cabType, setCabType] = useState("");
   const [rideType, setRideType] = useState("");
+
+  const [pickupSuggestions, setPickupSuggestions] = useState<Place[]>([]);
+  const [dropoffSuggestions, setDropoffSuggestions] = useState<Place[]>([]);
+
+  interface AutocompleteResponse {
+    place_id: string;
+    display_name: string;
+    lat: string;
+    lon: string;
+  }
+
+  const handlePickupChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target.value;
+    setPickup(input);
+    if (input.length > 2) {
+      try {
+        const response = await fetch(
+          `https://us1.locationiq.com/v1/autocomplete?key=${API_KEY}&q=${input}`
+        );
+        const data: AutocompleteResponse[] = await response.json();
+        if (data == null) return;
+        const places: Place[] = data.map((item) => ({
+          place_id: item.place_id,
+          display_name: item.display_name,
+          lat: item.lat,
+          lon: item.lon,
+          type: "",
+          importance: 0,
+          boundingbox: ["", "", "", ""],
+        }));
+        setPickupSuggestions(places);
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setPickupSuggestions([]);
+    }
+  };
+
+  const handleDropoffChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const input = e.target.value;
+    setDropoff(input);
+    if (input.length > 2) {
+      try {
+        const response = await fetch(
+          `https://us1.locationiq.com/v1/autocomplete?key=${API_KEY}&q=${input}`
+        );
+        const data: AutocompleteResponse[] = await response.json();
+        const places: Place[] = data.map((item) => ({
+          place_id: item.place_id,
+          display_name: item.display_name,
+          lat: item.lat,
+          lon: item.lon,
+          type: "",
+          importance: 0,
+          boundingbox: ["", "", "", ""],
+        }));
+        setDropoffSuggestions(places);
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setPickupSuggestions([]);
+    }
+  };
+
+  interface SelectEvent {
+    target: {
+      value: string;
+    };
+  }
+
+  const handlePickupSelect = (e: SelectEvent) => {
+    const selectedLocation = pickupSuggestions.find(
+      (place) => place.place_id === e.target.value
+    );
+    if (selectedLocation) {
+      const { lat, lon } = selectedLocation;
+      const location = { lat, lon };
+      setPickup(selectedLocation.display_name);
+      setPickupLocation(location);
+      setPickupSuggestions([]);
+    }
+  };
+
+  interface SelectEvent {
+    target: {
+      value: string;
+    };
+  }
+
+  const handleDropoffSelect = (e: SelectEvent) => {
+    const selectedLocation = dropoffSuggestions.find(
+      (place) => place.place_id === e.target.value
+    );
+    if (selectedLocation) {
+      const { lat, lon } = selectedLocation;
+      const location = { lat, lon };
+      setDropoff(selectedLocation.display_name);
+      setDropoffLocation(location);
+      setDropoffSuggestions([]);
+    }
+  };
 
   interface RideData {
     distance: number;
@@ -37,6 +177,21 @@ export default function LandingPage() {
     cab_type_Lyft: boolean;
     cab_type_Uber: boolean;
   }
+
+  const fetchRoute = async () => {
+    try {
+
+      const url = `https://us1.locationiq.com/v1/directions/driving/${pickupLocation?.lon}%2C${pickupLocation?.lat}%3B${dropoffLocation?.lon}%2C${dropoffLocation?.lat}?key=${API_KEY}`;
+      const options = {method: 'GET', headers: {accept: 'application/json'}};
+      const response = await fetch(url, options);
+      const result = await response.json();
+      if (result.code === "Ok" && result.routes && result.routes[0]) {
+        setDistance(result.routes[0].distance/1600);
+      }
+    } catch (error) {
+      console.error("Error fetching route:", error);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -64,9 +219,8 @@ export default function LandingPage() {
       cab_type_Uber: cabType === "uber",
     };
 
-    console.log("Data:", data);
-
-    setTimeout(() => {}, 1000);
+    // wait for distance to be calculated
+    await fetchRoute();
 
     try {
       const response = await fetch(
@@ -81,7 +235,6 @@ export default function LandingPage() {
       );
 
       const result = await response.json();
-      console.log("API Response:", result);
       setPrediction(result);
       // Handle the result (e.g., show it to the user, etc.)
     } catch (error) {
@@ -207,8 +360,21 @@ export default function LandingPage() {
                       id="pickup"
                       placeholder="Enter pickup address"
                       value={pickup}
-                      onChange={(e) => setPickup(e.target.value)}
+                      onChange={handlePickupChange}
                     />
+                    {pickupSuggestions.length > 0 && (
+                      <select onChange={handlePickupSelect}>
+                        <option value="">Select a pickup location</option>
+                        {pickupSuggestions.map((suggestion) => (
+                          <option
+                            key={suggestion.place_id}
+                            value={suggestion.place_id}
+                          >
+                            {suggestion.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label className="text-white" htmlFor="dropoff">
@@ -219,8 +385,21 @@ export default function LandingPage() {
                       id="dropoff"
                       placeholder="Enter drop-off address"
                       value={dropoff}
-                      onChange={(e) => setDropoff(e.target.value)}
+                      onChange={handleDropoffChange}
                     />
+                    {dropoffSuggestions.length > 0 && (
+                      <select onChange={handleDropoffSelect}>
+                        <option value="">Select a dropoff location</option>
+                        {dropoffSuggestions.map((suggestion) => (
+                          <option
+                            key={suggestion.place_id}
+                            value={suggestion.place_id}
+                          >
+                            {suggestion.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label className="text-white" htmlFor="cabType">
@@ -313,7 +492,7 @@ export default function LandingPage() {
                         Estimated Fare
                       </h3>
                       <p className="text-lg text-white">
-                        ${prediction?.prediction.toFixed(2)}
+                        ₹ {(prediction?.prediction * 12).toFixed(2)}
                       </p>
                     </div>
                   )}
