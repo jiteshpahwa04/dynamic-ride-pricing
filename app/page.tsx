@@ -222,6 +222,11 @@ export default function LandingPage() {
     // wait for distance to be calculated
     await fetchRoute();
 
+    if(distance==0){
+      console.log("Returning from here as distance is 0");
+      return;
+    }
+
     try {
       const response = await fetch(
         "https://dynamic-ride-pricing-backend.onrender.com/predict",
